@@ -70,6 +70,7 @@ ghascan --offline scan_data.json -v --verdict CRITICAL HIGH
 ```bash
 ghascan --query 1 -o results.json    # JSON
 ghascan --query 1 --html report.html # Interactive HTML
+ghascan --query 1 --pdf report.pdf # PDF
 ```
 
 Markdown is always generated alongside JSON automatically.
