@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gha-vuln-scanner"
+version = "3.5.0"
+description = "GitHub Actions vulnerability scanner — detects expression injection, GITHUB_ENV injection, and AI prompt injection risks in CI/CD workflows"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Sergio Cabrera", email = "sergio@gha-vuln-scanner.dev" },
+]
+keywords = [
+    "github-actions", "security", "vulnerability-scanner", "ci-cd",
+    "expression-injection", "supply-chain", "devsecops", "sast",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+pdf = ["reportlab>=4.0"]
+all = ["pyyaml>=6.0", "reportlab>=4.0"]
+dev = [
+    "pyyaml>=6.0",
+    "reportlab>=4.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sergio-cabrera/gha-vuln-scanner"
+Documentation = "https://github.com/sergio-cabrera/gha-vuln-scanner#readme"
+Repository = "https://github.com/sergio-cabrera/gha-vuln-scanner"
+Issues = "https://github.com/sergio-cabrera/gha-vuln-scanner/issues"
+
+
+[project.scripts]
+ghascan = "gha_vuln_scanner.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gha_vuln_scanner"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
