@@ -162,7 +162,6 @@ LIMITED_CONTROL = {
     'github.head_ref', 'github.event.pull_request.head.ref',
     'github.event.pull_request.head.label', 'github.event.label.name',
     'github.event.pull_request.head.repo.full_name',
-    'github.event.pull_request.base.ref',
 }
 
 NO_CONTROL = {
@@ -196,6 +195,7 @@ NO_CONTROL = {
     'github.repository', 'github.repository_owner',
     'github.actor', 'github.triggering_actor',
     'github.ref', 'github.ref_name', 'github.base_ref',
+    'github.event.pull_request.base.ref',  # target branch — attacker picks target but charset is [a-zA-Z0-9._/-]
     'github.sha', 'github.run_id', 'github.run_number', 'github.event_name',
     'github.event.action', 'github.event.number',
     'github.event.pull_request.head.sha', 'github.event.pull_request.base.sha',
@@ -211,6 +211,11 @@ NO_CONTROL = {
     'github.event.pull_request.additions', 'github.event.pull_request.deletions',
     'github.event.pull_request.changed_files',
     'github.event.pull_request.commits',
+    'github.event.pull_request.milestone.number',  # integer — GitHub-generated
+    'github.event.pull_request.milestone.title',  # set by collaborators, not public
+    'github.event.pull_request.assignees',  # set by collaborators
+    'github.event.pull_request.requested_reviewers',  # set by collaborators
+    'github.event.pull_request.auto_merge',  # GitHub-controlled
     'github.event.pull_request.user.avatar_url',
     'github.event.pull_request.user.html_url',
     'github.event.pull_request.user.url',

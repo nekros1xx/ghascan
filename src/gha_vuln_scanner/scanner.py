@@ -9,7 +9,7 @@ Author: Sergio Cabrera
         https://www.linkedin.com/in/sergio-cabrera-878766239/
 
 License: MIT
-Repository: https://github.com/sergio-cabrera/gha-vuln-scanner
+Repository: https://github.com/nekros1xx/ghascan
 
 v3.5: Git clone mode (--clone) for full repo context, per-job secrets
       scoping, boolean expression FP elimination, NO_CONTROL expansion,
@@ -742,7 +742,8 @@ def check_merged_only(content, triggers):
     if 'pull_request_target' not in triggers: return False
     for line in content.split('\n'):
         if line.strip().startswith('#'): continue
-        if re.search(r'if:.*github\.event\.pull_request\.merged\s*(==\s*true|&&|\s*\}\})', line, re.I):
+        # Match both single-line if: and multiline if: | blocks
+        if re.search(r'github\.event\.pull_request\.merged\s*(==\s*true|&&|\s*\}\})', line, re.I):
             return True
     return False
 
