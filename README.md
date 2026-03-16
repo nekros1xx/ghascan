@@ -12,7 +12,7 @@ By [Sergio Cabrera](https://www.linkedin.com/in/sergio-cabrera-878766239/)
 ## ⚡ Install
 
 ```bash
-pip install git+https://github.com/sergio-cabrera/gha-vuln-scanner.git
+pip install git+https://github.com/nekros1xx/ghascan.git
 ```
 
 That's it. Now set your token and scan:
