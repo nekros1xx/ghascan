@@ -21,7 +21,7 @@ Usage:
   ghascan --query 6
   ghascan --all --min-stars 100
   ghascan --query 1 -v --verdict CRITICAL HIGH
-  ghascan --offline scan_data.json -v --html report.html
+  ghascan --offline scan_data.json -v --html report.html --pdf report.pdf
 """
 
 import os, sys, json, time, re, argparse, hashlib, functools
@@ -1966,6 +1966,61 @@ def _print_finding_terminal(f):
             print(f"     🤖 {C.MAGENTA}AI INJECTION{C.RESET}: L{ai['line']} — {ai['expression']}")
 
 
+def print_details(findings, min_stars=0, verdict_filter=None):
+    for f in sorted(findings, key=lambda f: -f.stars):
+        if f.stars < min_stars: continue
+        if verdict_filter and f.severity not in verdict_filter: continue
+        print(f"\n{dim('─' * 60)}")
+        print(f"  {sev(f.severity)}  {C.BOLD}{f.repo}{C.RESET} ({f.stars}⭐)")
+        print(f"  {dim('Org:')}      {f.org_name} ({f.org_type})")
+        print(f"  {dim('File:')}     {url_c(f.file_url)}")
+        print(f"  {dim('Security:')} {url_c(f.security_url)}")
+        print(f"  {dim('Trigger:')}  {f.who_can_trigger}")
+        if f.secrets_exposed:
+            secrets_at_risk = f.severity in ('CRITICAL', 'HIGH')
+            sec_color = C.RED if secrets_at_risk else C.YELLOW
+            sec_label = '🔑 Secrets:' if secrets_at_risk else '🔒 Secrets (not exfiltrable):'
+            print(f"  {dim(sec_label)}  {sec_color}{', '.join(f.secrets_exposed)}{C.RESET}")
+        if f.permissions:
+            print(f"  {dim('Perms:')}    {f.permissions}")
+        if f.has_auth_check:
+            print(f"  {dim('Auth:')}     {C.YELLOW}{f.auth_details}{C.RESET}")
+        if f.merged_only:
+            print(f"  {dim('Gate:')}     {C.YELLOW}merged-only (still exploitable via PR title){C.RESET}")
+        if f.has_heredoc_only:
+            print(f"  {dim('Heredoc:')}  {C.GREEN}quoted heredoc — shell expansion disabled, nearly unexploitable{C.RESET}")
+        if f.permissions_readonly:
+            print(f"  {dim('Perms:')}    {C.GREEN}permissions: {{}} — GITHUB_TOKEN has NO permissions{C.RESET}")
+        if f.unpinned_actions:
+            print(f"  {dim('Unpinned:')} {', '.join(f.unpinned_actions[:5])}")
+        if f.env_injections:
+            print(f"  {dim('Env Inj:')}  {C.YELLOW}{len(f.env_injections)} GITHUB_ENV/PATH injections{C.RESET}")
+        if f.indirect_vulns:
+            print(f"  {dim('Indirect:')} {C.YELLOW}{len(f.indirect_vulns)} step-output injections{C.RESET}")
+        print(f"  {dim('Explain:')}  {f.explanation}")
+        print(f"  {dim('Attack:')}   {C.BOLD}{f.attack_narrative}{C.RESET}")
+        if f.poc:
+            print(f"  {C.BOLD}📋 PoC:{C.RESET}")
+            for poc_line in f.poc.split('\n'):
+                print(f"    {dim(poc_line)}")
+        if f.active_vulns:
+            _ctrl_order = {'FULL_CONTROL': 0, 'UNKNOWN': 1, 'DISPATCH_INPUT': 2,
+                           'LIMITED_CONTROL': 3, 'NO_CONTROL': 4}
+            sorted_vulns = sorted(f.active_vulns,
+                key=lambda e: _ctrl_order.get(e.control_level, 5))
+            print(f"  {C.BOLD}Expressions ({len(f.active_vulns)}):{C.RESET}")
+            for e in sorted_vulns:
+                echo_tag = f' {C.CYAN}[echo-only]{C.RESET}' if e.echo_only else ''
+                hd_tag = f' {C.GREEN}[heredoc]{C.RESET}' if e.in_heredoc else ''
+                label = ctrl_label(e.control_level)
+                explanation = ctrl_explain(e.control_level)
+                trigger_note = ''
+                if e.control_level in ('FULL_CONTROL', 'UNKNOWN') and f.trigger_openness in ('INTERNAL', 'DISPATCH'):
+                    trigger_note = f' {dim("(but trigger restricted to repo collaborators)")}'
+                print(f"    {dim(f'L{e.line}:')} {e.expression} ({e.context}){echo_tag}{hd_tag}")
+                print(f"           {C.YELLOW}{label}{C.RESET}: {dim(explanation)}{trigger_note}")
+
+
 def export_json(findings, outpath):
     out = [finding_to_dict(f) for f in findings]
     data = {"scan_time": datetime.now().isoformat(), "scanner_version": "3.5",
@@ -2156,6 +2211,199 @@ document.querySelectorAll('tr[data-sev],tr.query-header').forEach(r=>r.classList
     print(f"{C.GREEN}📊 HTML report: {outpath}{C.RESET}")
 
 
+def export_pdf(findings, outpath):
+    """Generate a professional PDF report with clickable links."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.colors import HexColor, white
+        from reportlab.lib.units import cm
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+            Table, TableStyle, PageBreak, HRFlowable, KeepTogether)
+    except ImportError:
+        print(f"  {C.RED}reportlab not installed — skipping PDF export{C.RESET}")
+        print(f"  Install with: pip install reportlab")
+        return
+
+    SEV_COLORS = {
+        'CRITICAL': HexColor('#991b1b'), 'HIGH': HexColor('#dc2626'),
+        'MEDIUM': HexColor('#ea580c'), 'LOW': HexColor('#ca8a04'),
+        'AI_INJECTION': HexColor('#7c3aed'), 'FALSE_POSITIVE': HexColor('#6b7280')
+    }
+    BG_LIGHT = HexColor('#f8f9fa')
+    BG_CARD = HexColor('#ffffff')
+    MUTED = HexColor('#9ca3af')
+
+    def _esc(s):
+        return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    def _link(url, label=None):
+        label = _esc(label or url)
+        return f'<a href="{url}" color="#3b82f6">{label}</a>'
+
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle('ReportTitle', parent=styles['Title'],
+        fontSize=22, textColor=HexColor('#0f172a'), spaceAfter=4))
+    styles.add(ParagraphStyle('ReportSubtitle', parent=styles['Normal'],
+        fontSize=11, textColor=MUTED, spaceAfter=16))
+    styles.add(ParagraphStyle('RepoName', parent=styles['Normal'],
+        fontSize=11, fontName='Helvetica-Bold', textColor=HexColor('#0f172a'),
+        spaceBefore=2, spaceAfter=2))
+    styles.add(ParagraphStyle('Detail', parent=styles['Normal'],
+        fontSize=9, textColor=HexColor('#374151'), leftIndent=8,
+        spaceBefore=1, spaceAfter=1))
+    styles.add(ParagraphStyle('ExprCode', parent=styles['Normal'],
+        fontSize=8, fontName='Courier', textColor=HexColor('#1e293b'),
+        leftIndent=16, spaceBefore=1, spaceAfter=1, backColor=HexColor('#f1f5f9')))
+    styles.add(ParagraphStyle('PocText', parent=styles['Normal'],
+        fontSize=8, fontName='Courier', textColor=HexColor('#475569'),
+        leftIndent=16, spaceBefore=1, spaceAfter=1, backColor=HexColor('#fef3c7')))
+    styles.add(ParagraphStyle('AiRisk', parent=styles['Normal'],
+        fontSize=9, textColor=HexColor('#7c3aed'), leftIndent=8,
+        spaceBefore=1, spaceAfter=1))
+    styles.add(ParagraphStyle('SectionHead', parent=styles['Heading2'],
+        fontSize=14, textColor=HexColor('#0f172a'), spaceBefore=16, spaceAfter=8))
+
+    doc = SimpleDocTemplate(outpath, pagesize=A4,
+        leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=2*cm, bottomMargin=2*cm)
+    story = []
+    vc = Counter(f.severity for f in findings)
+    total = len(findings)
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+    # Title
+    story.append(Paragraph('GHA Vulnerability Scanner Report', styles['ReportTitle']))
+    story.append(Paragraph(
+        f'{total} findings analyzed — {now}<br/>'
+        f'By <a href="https://www.linkedin.com/in/sergio-cabrera-878766239/" color="#3b82f6">'
+        f'Sergio Cabrera</a>', styles['ReportSubtitle']))
+
+    # Summary table
+    sev_order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'AI_INJECTION', 'FALSE_POSITIVE']
+    summary_data = [['Severity', 'Count', '%']]
+    for s in sev_order:
+        cnt = vc.get(s, 0)
+        pct = f'{cnt/total*100:.1f}%' if total else '0%'
+        summary_data.append([s, str(cnt), pct])
+
+    summary_table = Table(summary_data, colWidths=[120, 60, 60])
+    summary_style = [
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#0f172a')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e5e7eb')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [BG_LIGHT, BG_CARD]),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]
+    for i, s in enumerate(sev_order):
+        summary_style.append(('TEXTCOLOR', (0, i+1), (0, i+1), SEV_COLORS[s]))
+        summary_style.append(('FONTNAME', (0, i+1), (0, i+1), 'Helvetica-Bold'))
+    summary_table.setStyle(TableStyle(summary_style))
+    story.append(summary_table)
+    story.append(Spacer(1, 12))
+
+    # Findings grouped by query then severity
+    query_groups = defaultdict(list)
+    for f in findings:
+        key = (f.query_id, f.query_name)
+        query_groups[key].append(f)
+
+    sorted_queries = sorted(query_groups.keys(), key=lambda k: k[0] if k[0] >= 0 else 999)
+
+    for qid, qname in sorted_queries:
+        qfindings = query_groups[(qid, qname)]
+        if qid >= 0:
+            story.append(PageBreak())
+            story.append(Paragraph(f'Q{qid}: {_esc(qname)}', styles['Title']))
+            story.append(Spacer(1, 8))
+
+        for sev_name in sev_order:
+            sev_findings = sorted([f for f in qfindings if f.severity == sev_name], key=lambda f: -f.stars)
+            if not sev_findings or sev_name == 'FALSE_POSITIVE':
+                continue
+
+            story.append(Paragraph(f'{sev_name} ({len(sev_findings)})', styles['SectionHead']))
+            story.append(HRFlowable(width='100%', thickness=1, color=SEV_COLORS[sev_name], spaceAfter=8))
+
+            for f in sev_findings:
+                elements = []
+
+                repo_link = _link(f.repo_url, f.repo) if f.repo_url else _esc(f.repo)
+                tags = ''
+                if f.merged_only: tags += ' <font color="#ca8a04">[merged-only]</font>'
+                if f.has_heredoc_only: tags += ' <font color="#16a34a">[heredoc]</font>'
+                if f.permissions_readonly: tags += ' <font color="#16a34a">[perms:{}]</font>'
+                elements.append(Paragraph(
+                    f'<font color="{SEV_COLORS[sev_name].hexval()}">\u25cf</font> '
+                    f'{repo_link} ({f.stars} stars){tags}',
+                    styles['RepoName']))
+
+                if f.file_url:
+                    elements.append(Paragraph(f'{_link(f.file_url, "Workflow file")}', styles['Detail']))
+                if f.security_url:
+                    elements.append(Paragraph(f'{_link(f.security_url, "Security advisories")}', styles['Detail']))
+
+                if f.secrets_exposed:
+                    secrets_at_risk = f.severity in ('CRITICAL', 'HIGH')
+                    sec_color = '#dc2626' if secrets_at_risk else '#ca8a04'
+                    sec_label = 'Secrets' if secrets_at_risk else 'Secrets (not exfiltrable)'
+                    secrets_str = ', '.join(f.secrets_exposed[:4])
+                    elements.append(Paragraph(
+                        f'{sec_label}: <font color="{sec_color}">{_esc(secrets_str)}</font>',
+                        styles['Detail']))
+
+                if not f.permissions_readonly and f.severity in ('CRITICAL', 'HIGH'):
+                    elements.append(Paragraph(
+                        f'GITHUB_TOKEN: <font color="#dc2626">write access</font>',
+                        styles['Detail']))
+
+                for e in f.active_vulns[:4]:
+                    ctrl_lbl = ctrl_label(e.control_level)
+                    echo_tag = ' <font color="#0891b2">[echo]</font>' if e.echo_only else ''
+                    hd_tag = ' <font color="#16a34a">[heredoc]</font>' if e.in_heredoc else ''
+                    elements.append(Paragraph(
+                        f'L{e.line}: <font name="Courier" size="8">{_esc(e.expression)}</font>{echo_tag}{hd_tag}',
+                        styles['ExprCode']))
+                    elements.append(Paragraph(
+                        f'<font color="#ca8a04">{_esc(ctrl_lbl)}</font>: '
+                        f'<font color="#6b7280">{_esc(ctrl_explain(e.control_level))}</font>',
+                        styles['Detail']))
+
+                if f.poc:
+                    elements.append(Spacer(1, 4))
+                    elements.append(Paragraph('<b>Proof of Concept:</b>', styles['Detail']))
+                    for poc_line in f.poc.split('\n'):
+                        if poc_line.strip():
+                            elements.append(Paragraph(_esc(poc_line), styles['PocText']))
+
+                if f.ai_risk:
+                    for ai in f.ai_risk:
+                        tainted = ', '.join(ai['tainted_fields'][:2])
+                        elements.append(Paragraph(
+                            f'<b>AI INJECTION</b>: L{ai["line"]} — '
+                            f'<font name="Courier" size="8">{_esc(ai["expression"])}</font>',
+                            styles['AiRisk']))
+                        elements.append(Paragraph(
+                            f'AI action <b>{_esc(ai["ai_action"])}</b> receives attacker input '
+                            f'({_esc(tainted)})', styles['Detail']))
+
+                if f.explanation:
+                    elements.append(Paragraph(
+                        f'<font color="#6b7280">{_esc(f.explanation)}</font>',
+                        styles['Detail']))
+
+                elements.append(Spacer(1, 8))
+                elements.append(HRFlowable(width='100%', thickness=0.5, color=HexColor('#e5e7eb'), spaceAfter=4))
+                story.append(KeepTogether(elements))
+
+    doc.build(story)
+    print(f"\n  {C.GREEN}📄 PDF report: {outpath}{C.RESET}")
+
+
 def scan_org(org_name, max_repos=500, min_stars=0, use_clone=True):
     print(f"\n{C.BOLD}🏢 Scanning organization: {org_name}{C.RESET}")
     print(f"   Fetching repo list (max {max_repos})...\n")
@@ -2264,6 +2512,7 @@ def main():
     parser.add_argument('--offline', type=str, help='Analyze existing scan JSON')
     parser.add_argument('-o', '--output', type=str, help='Output JSON path')
     parser.add_argument('--html', type=str, help='Output HTML report path')
+    parser.add_argument('--pdf', type=str, help='Output PDF report path')
     parser.add_argument('--clone', action='store_true')
     parser.add_argument('--org', type=str, help='Scan all repos in a GitHub org')
     parser.add_argument('--org-max-repos', type=int, default=500)
@@ -2286,8 +2535,12 @@ def main():
         for f in findings: _md_append_finding(md_path, f)
         _md_finalize(md_path, findings)
         print_summary(findings)
+        if args.verbose:
+            print_details(findings, min_stars=args.min_stars,
+                         verdict_filter=set(args.verdict) if args.verdict else None)
         if args.output: export_json(findings, args.output)
         if args.html: export_html(findings, args.html)
+        if args.pdf: export_pdf(findings, args.pdf)
         return
 
     if args.clone or args.org:
@@ -2307,8 +2560,12 @@ def main():
             for f in findings: _md_append_finding(md_path, f)
             _md_finalize(md_path, findings)
             print_summary(findings)
+            if args.verbose:
+                print_details(findings, min_stars=args.min_stars,
+                             verdict_filter=set(args.verdict) if args.verdict else None)
             export_json(findings, out)
             if args.html: export_html(findings, args.html)
+            if args.pdf: export_pdf(findings, args.pdf)
         else:
             print(f"\n📭 No vulnerabilities found in {args.org}")
         if _CLONE_DIR and os.path.exists(_CLONE_DIR):
@@ -2368,8 +2625,12 @@ def main():
     all_findings.sort(key=lambda f: -f.stars)
     _md_finalize(md_path, all_findings)
     print_summary(all_findings)
+    if args.verbose:
+        print_details(all_findings, min_stars=args.min_stars,
+                     verdict_filter=set(args.verdict) if args.verdict else None)
     export_json(all_findings, out)
     if args.html: export_html(all_findings, args.html)
+    if args.pdf: export_pdf(all_findings, args.pdf)
     if _USE_CLONE and _CLONE_DIR and os.path.exists(_CLONE_DIR):
         _rmtree_safe(_CLONE_DIR)
 
