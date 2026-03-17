@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "gha-vuln-scanner"
 version = "3.5.0"
-description = "GitHub Actions vulnerability scanner — detects expression injection, GITHUB_ENV injection, and AI prompt injection risks in CI/CD workflows"
+description = "GitHub Actions vulnerability scanner - detects expression injection, GITHUB_ENV injection, and AI prompt injection risks in CI/CD workflows"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [
-    { name = "Sergio Cabrera", email = "sergio@gha-vuln-scanner.dev" },
+    { name = "Sergio Cabrera", email = "nekros1x.sc@gmail.com" },
 ]
 keywords = [
     "github-actions", "security", "vulnerability-scanner", "ci-cd",
@@ -49,10 +49,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sergio-cabrera/gha-vuln-scanner"
-Documentation = "https://github.com/sergio-cabrera/gha-vuln-scanner#readme"
-Repository = "https://github.com/sergio-cabrera/gha-vuln-scanner"
-Issues = "https://github.com/sergio-cabrera/gha-vuln-scanner/issues"
+Homepage = "https://xsec.sh"
+Documentation = "https://github.com/nekros1xx/ghascan/blob/main/README.md"
+Repository = "https://github.com/nekros1xx/ghascan"
+Issues = "https://github.com/nekros1xx/ghascan/issues"
 
 
 [project.scripts]
