@@ -138,4 +138,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## 👤 Author
 
-**Sergio Cabrera** — [LinkedIn](https://www.linkedin.com/in/sergio-cabrera-878766239/) · [GitHub](https://github.com/sergio-cabrera)
+**Sergio Cabrera** — [LinkedIn](https://www.linkedin.com/in/sergio-cabrera-878766239/) · [GitHub](https://github.com/nekros1xx)
